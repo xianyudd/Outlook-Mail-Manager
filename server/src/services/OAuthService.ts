@@ -24,7 +24,7 @@ export class OAuthService {
     let response: any;
     if (type === 'socks5' && agent) {
       const nodefetch = require('node-fetch');
-      response = await nodefetch('https://login.microsoftonline.com/consumers/oauth2/v2.0/token', {
+      response = await nodefetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
         method: 'POST',
         agent,
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -38,7 +38,7 @@ export class OAuthService {
         body,
       };
       if (dispatcher) opts.dispatcher = dispatcher;
-      response = await undiciFetch('https://login.microsoftonline.com/consumers/oauth2/v2.0/token', opts);
+      response = await undiciFetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', opts);
     }
 
     if (!response.ok) {
@@ -73,7 +73,7 @@ export class OAuthService {
     let response: any;
     if (type === 'socks5' && agent) {
       const nodefetch = require('node-fetch');
-      response = await nodefetch('https://login.microsoftonline.com/consumers/oauth2/v2.0/token', {
+      response = await nodefetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
         method: 'POST',
         agent,
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -87,7 +87,7 @@ export class OAuthService {
         body,
       };
       if (dispatcher) opts.dispatcher = dispatcher;
-      response = await undiciFetch('https://login.microsoftonline.com/consumers/oauth2/v2.0/token', opts);
+      response = await undiciFetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', opts);
     }
 
     if (!response.ok) {
