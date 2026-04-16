@@ -14,7 +14,7 @@ export class MailCacheModel {
     const stmt = db.prepare(`
       INSERT INTO mail_cache (account_id, mailbox, mail_id, sender, sender_name, subject, text_content, html_content, mail_date)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
+      ON CONFLICT(account_id, mailbox, mail_id) WHERE mail_id <> '' DO UPDATE SET
         sender = excluded.sender,
         sender_name = excluded.sender_name,
         subject = excluded.subject,

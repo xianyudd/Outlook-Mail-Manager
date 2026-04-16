@@ -1,0 +1,16 @@
+# /etc/logrotate.d/outlook-mail-manager
+# 使用前请确认日志绝对路径与运行用户
+
+/mnt/d/Jason/Documents/Workspace/Project/Outlook-Mail-Manager/server/data/logs/*.log {
+  daily
+  size 100M
+  rotate 14
+  compress
+  delaycompress
+  missingok
+  notifempty
+  copytruncate
+  dateext
+  dateformat -%Y%m%d
+  create 0640 jason jason
+}

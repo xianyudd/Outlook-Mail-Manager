@@ -5,14 +5,52 @@ const proxyService = new ProxyService();
 
 interface TokenResult {
   access_token: string;
-  refresh_token?: string;  // 新增：微软返回的新 refresh_token
+  refresh_token?: string;
   has_mail_scope?: boolean;
   expires_in: number;
 }
 
+interface OAuthLogContext {
+  request_id?: string;
+  account_id?: number;
+  account_email?: string;
+  mailbox?: string;
+  proxy_id?: number;
+  protocol?: 'graph' | 'imap';
+}
+
+const maskClientId = (clientId: string): string => {
+  if (!clientId) return 'unknown';
+  if (clientId.length <= 10) return clientId;
+  return `${clientId.slice(0, 6)}...${clientId.slice(-4)}`;
+};
+
 export class OAuthService {
-  async refreshGraphToken(clientId: string, refreshToken: string, proxyId?: number): Promise<TokenResult> {
+  async refreshGraphToken(
+    clientId: string,
+    refreshToken: string,
+    proxyId?: number,
+    logContext?: OAuthLogContext
+  ): Promise<TokenResult> {
+    const startedAt = Date.now();
     const { agent, dispatcher, type } = proxyService.getAgent(proxyId);
+    const proxyType = type || 'none';
+    const baseLog = {
+      request_id: logContext?.request_id || 'unknown',
+      account_id: logContext?.account_id,
+      account_email: logContext?.account_email,
+      mailbox: logContext?.mailbox,
+      proxy_id: proxyId,
+      proxy_type: proxyType,
+      protocol: 'graph',
+      client_id_suffix: maskClientId(clientId),
+    };
+
+    logger.info({
+      event: 'oauth_refresh_graph',
+      status: 'started',
+      ...baseLog,
+    });
 
     const body = new URLSearchParams({
       client_id: clientId,
@@ -43,6 +81,14 @@ export class OAuthService {
 
     if (!response.ok) {
       const errorText = await response.text();
+      logger.warn({
+        event: 'oauth_refresh_graph',
+        status: 'failed',
+        ...baseLog,
+        http_status: response.status,
+        duration_ms: Date.now() - startedAt,
+        error_message: errorText.slice(0, 300),
+      });
       throw new Error(`OAuth token refresh failed: ${response.status} - ${errorText}`);
     }
 
@@ -50,18 +96,51 @@ export class OAuthService {
     const hasMailScope = data.scope?.includes('Mail.Read') ?? false;
     const hasNewRefreshToken = !!data.refresh_token;
     const tokenChanged = data.refresh_token && data.refresh_token !== refreshToken;
-    logger.info(`Graph token refreshed, has_mail_scope: ${hasMailScope}, has_new_rt: ${hasNewRefreshToken}, rt_changed: ${tokenChanged}`);
+
+    logger.info({
+      event: 'oauth_refresh_graph',
+      status: 'succeeded',
+      ...baseLog,
+      has_mail_scope: hasMailScope,
+      has_new_refresh_token: hasNewRefreshToken,
+      refresh_token_changed: !!tokenChanged,
+      expires_in: data.expires_in,
+      duration_ms: Date.now() - startedAt,
+    });
 
     return {
       access_token: data.access_token,
-      refresh_token: data.refresh_token,  // 新增
+      refresh_token: data.refresh_token,
       has_mail_scope: hasMailScope,
       expires_in: data.expires_in,
     };
   }
 
-  async refreshImapToken(clientId: string, refreshToken: string, proxyId?: number): Promise<TokenResult> {
+  async refreshImapToken(
+    clientId: string,
+    refreshToken: string,
+    proxyId?: number,
+    logContext?: OAuthLogContext
+  ): Promise<TokenResult> {
+    const startedAt = Date.now();
     const { agent, dispatcher, type } = proxyService.getAgent(proxyId);
+    const proxyType = type || 'none';
+    const baseLog = {
+      request_id: logContext?.request_id || 'unknown',
+      account_id: logContext?.account_id,
+      account_email: logContext?.account_email,
+      mailbox: logContext?.mailbox,
+      proxy_id: proxyId,
+      proxy_type: proxyType,
+      protocol: 'imap',
+      client_id_suffix: maskClientId(clientId),
+    };
+
+    logger.info({
+      event: 'oauth_refresh_imap',
+      status: 'started',
+      ...baseLog,
+    });
 
     const body = new URLSearchParams({
       client_id: clientId,
@@ -92,17 +171,34 @@ export class OAuthService {
 
     if (!response.ok) {
       const errorText = await response.text();
+      logger.warn({
+        event: 'oauth_refresh_imap',
+        status: 'failed',
+        ...baseLog,
+        http_status: response.status,
+        duration_ms: Date.now() - startedAt,
+        error_message: errorText.slice(0, 300),
+      });
       throw new Error(`IMAP token refresh failed: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
     const hasNewRefreshToken = !!data.refresh_token;
     const tokenChanged = data.refresh_token && data.refresh_token !== refreshToken;
-    logger.info(`IMAP token refreshed, has_new_rt: ${hasNewRefreshToken}, rt_changed: ${tokenChanged}`);
+
+    logger.info({
+      event: 'oauth_refresh_imap',
+      status: 'succeeded',
+      ...baseLog,
+      has_new_refresh_token: hasNewRefreshToken,
+      refresh_token_changed: !!tokenChanged,
+      expires_in: data.expires_in,
+      duration_ms: Date.now() - startedAt,
+    });
 
     return {
       access_token: data.access_token,
-      refresh_token: data.refresh_token,  // 新增
+      refresh_token: data.refresh_token,
       expires_in: data.expires_in,
     };
   }

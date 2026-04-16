@@ -3,6 +3,7 @@ import bodyParser from 'koa-bodyparser';
 import serve from 'koa-static';
 import path from 'path';
 import fs from 'fs';
+import { requestIdMiddleware } from './middlewares/requestId';
 import { loggerMiddleware } from './middlewares/logger';
 import { errorHandler } from './middlewares/errorHandler';
 import { authMiddleware } from './middlewares/auth';
@@ -11,8 +12,9 @@ import router from './routes';
 const app = new Koa();
 
 // 中间件
-app.use(errorHandler);
+app.use(requestIdMiddleware);
 app.use(loggerMiddleware);
+app.use(errorHandler);
 app.use(bodyParser({ jsonLimit: '10mb' }));
 app.use(authMiddleware);
 

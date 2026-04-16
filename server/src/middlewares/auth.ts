@@ -8,7 +8,9 @@ function hashPassword(password: string): string {
 
 export async function authMiddleware(ctx: Context, next: Next) {
   if (!config.accessPassword) return next();
-  if (ctx.path === '/api/auth/login' || ctx.path === '/api/auth/check') return next();
+
+  const publicApiPaths = new Set(['/api/auth/login', '/api/auth/check', '/api/healthz', '/api/readyz']);
+  if (publicApiPaths.has(ctx.path)) return next();
   if (!ctx.path.startsWith('/api')) return next();
 
   const token = ctx.get('Authorization')?.replace('Bearer ', '');
