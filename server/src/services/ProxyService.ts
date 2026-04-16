@@ -6,6 +6,16 @@ import logger from '../utils/logger';
 
 const proxyModel = new ProxyModel();
 
+interface ProxyLogContext {
+  request_id?: string;
+  job_id?: string;
+  account_id?: number;
+  mailbox?: string;
+  provider?: string;
+  operation?: string;
+  proxy_id?: number;
+}
+
 export class ProxyService {
   createSocksAgent(proxy: Proxy): SocksProxyAgent {
     let url = `socks5://`;
@@ -25,14 +35,27 @@ export class ProxyService {
     return new ProxyAgent(url);
   }
 
-  getAgent(proxyId?: number): { agent?: SocksProxyAgent; dispatcher?: ProxyAgent; type?: string } {
+  getAgent(proxyId?: number, logContext?: ProxyLogContext): { agent?: SocksProxyAgent; dispatcher?: ProxyAgent; type?: string } {
     let proxy: Proxy | undefined;
     if (proxyId) {
       proxy = proxyModel.getById(proxyId);
     } else {
       proxy = proxyModel.getDefault();
     }
-    if (!proxy) return {};
+    if (!proxy) {
+      logger.debug({
+        event: 'proxy_agent_resolve',
+        status: 'not_found',
+        request_id: logContext?.request_id || 'unknown',
+        job_id: logContext?.job_id,
+        account_id: logContext?.account_id,
+        mailbox: logContext?.mailbox,
+        provider: logContext?.provider,
+        operation: logContext?.operation,
+        proxy_id: proxyId ?? logContext?.proxy_id,
+      });
+      return {};
+    }
 
     if (proxy.type === 'socks5') {
       return { agent: this.createSocksAgent(proxy), type: 'socks5' };

@@ -14,9 +14,12 @@ const imapService = new ImapService();
 
 export interface MailServiceLogContext {
   request_id: string;
+  job_id?: string;
   account_id?: number;
   account_email?: string;
   mailbox?: string;
+  provider?: string;
+  operation?: string;
   proxy_id?: number;
   protocol?: 'graph' | 'imap';
 }
@@ -35,9 +38,12 @@ export class MailService {
 
     const baseLogContext: MailServiceLogContext = {
       request_id: logContext?.request_id || 'unknown',
+      job_id: logContext?.job_id,
       account_id: accountId,
       account_email: account.email,
       mailbox,
+      provider: logContext?.provider || 'microsoft',
+      operation: logContext?.operation || 'fetch_mails',
       proxy_id: proxyId,
     };
 
@@ -46,6 +52,8 @@ export class MailService {
       status: 'started',
       ...baseLogContext,
       top,
+      fallback_used: false,
+      cached: false,
     });
 
     // 尝试 Graph API
@@ -54,6 +62,7 @@ export class MailService {
       const token = await oauthService.refreshGraphToken(account.client_id, account.refresh_token, proxyId, {
         ...baseLogContext,
         protocol: 'graph',
+        provider: 'graph',
       });
       // Token rotation 回写
       accountModel.updateTokenRefreshTime(accountId, token.refresh_token);
@@ -62,6 +71,7 @@ export class MailService {
         const mails = await graphService.fetchMails(token.access_token, mailbox, top, proxyId, {
           ...baseLogContext,
           protocol: 'graph',
+          provider: 'graph',
         });
         cacheModel.upsert(accountId, mailbox, mails);
         accountModel.updateSyncTime(accountId);
@@ -71,9 +81,11 @@ export class MailService {
           status: 'succeeded',
           ...baseLogContext,
           protocol: 'graph',
+          provider: 'graph',
           protocol_final: 'graph',
           mail_count: mails.length,
           cached: false,
+          fallback_used: false,
           duration_ms: Date.now() - startedAt,
           graph_duration_ms: Date.now() - graphStartedAt,
         });
@@ -86,7 +98,9 @@ export class MailService {
         status: 'fallback',
         ...baseLogContext,
         protocol: 'graph',
+        provider: 'graph',
         fallback_reason: 'graph_missing_mail_scope',
+        fallback_used: true,
         duration_ms: Date.now() - graphStartedAt,
       });
     } catch (err: any) {
@@ -95,7 +109,9 @@ export class MailService {
         status: 'fallback',
         ...baseLogContext,
         protocol: 'graph',
+        provider: 'graph',
         fallback_reason: 'graph_fetch_failed',
+        fallback_used: true,
         error_message: err?.message || 'Unknown error',
       });
     }
@@ -110,6 +126,7 @@ export class MailService {
       const token = await oauthService.refreshImapToken(account.client_id, refreshToken, proxyId, {
         ...baseLogContext,
         protocol: 'imap',
+        provider: 'imap',
       });
       // Token rotation 回写
       accountModel.updateTokenRefreshTime(accountId, token.refresh_token);
@@ -118,6 +135,7 @@ export class MailService {
       const mails = await imapService.fetchMails(account.email, authString, mailbox, top, {
         ...baseLogContext,
         protocol: 'imap',
+        provider: 'imap',
       });
       cacheModel.upsert(accountId, mailbox, mails);
       accountModel.updateSyncTime(accountId);
@@ -127,9 +145,11 @@ export class MailService {
         status: 'succeeded',
         ...baseLogContext,
         protocol: 'imap',
+        provider: 'imap',
         protocol_final: 'imap',
         mail_count: mails.length,
         cached: false,
+        fallback_used: true,
         duration_ms: Date.now() - startedAt,
         imap_duration_ms: Date.now() - imapStartedAt,
       });
@@ -141,6 +161,8 @@ export class MailService {
         status: 'failed',
         ...baseLogContext,
         protocol: 'imap',
+        provider: 'imap',
+        fallback_used: true,
         error_message: err?.message || 'Unknown error',
       });
 
@@ -155,8 +177,10 @@ export class MailService {
           status: 'succeeded',
           ...baseLogContext,
           protocol: 'imap',
+          provider: 'cache',
           protocol_final: 'cache',
           fallback_reason: 'both_protocols_failed_return_cached',
+          fallback_used: true,
           cached: true,
           mail_count: cached.total,
           duration_ms: Date.now() - startedAt,
@@ -168,8 +192,11 @@ export class MailService {
         event: 'mail_service_fetch',
         status: 'failed',
         ...baseLogContext,
+        provider: 'none',
         protocol_final: 'none',
         fallback_reason: 'both_protocols_failed_no_cache',
+        fallback_used: true,
+        cached: false,
         duration_ms: Date.now() - startedAt,
         error_message: err?.message || 'Unknown error',
       });
@@ -190,9 +217,12 @@ export class MailService {
 
     const baseLogContext: MailServiceLogContext = {
       request_id: logContext?.request_id || 'unknown',
+      job_id: logContext?.job_id,
       account_id: accountId,
       account_email: account.email,
       mailbox,
+      provider: logContext?.provider || 'microsoft',
+      operation: logContext?.operation || 'clear_mailbox',
       proxy_id: proxyId,
     };
 
@@ -208,6 +238,7 @@ export class MailService {
       const token = await oauthService.refreshGraphToken(account.client_id, account.refresh_token, proxyId, {
         ...baseLogContext,
         protocol: 'graph',
+        provider: 'graph',
       });
       accountModel.updateTokenRefreshTime(accountId, token.refresh_token);
 
@@ -215,6 +246,7 @@ export class MailService {
         await graphService.deleteAllMails(token.access_token, mailbox, proxyId, {
           ...baseLogContext,
           protocol: 'graph',
+          provider: 'graph',
         });
 
         logger.info({
@@ -222,7 +254,9 @@ export class MailService {
           status: 'succeeded',
           ...baseLogContext,
           protocol: 'graph',
+          provider: 'graph',
           protocol_final: 'graph',
+          fallback_used: false,
           duration_ms: Date.now() - startedAt,
           graph_duration_ms: Date.now() - graphStartedAt,
         });
@@ -235,7 +269,9 @@ export class MailService {
         status: 'fallback',
         ...baseLogContext,
         protocol: 'graph',
+        provider: 'graph',
         fallback_reason: 'graph_missing_mail_scope',
+        fallback_used: true,
       });
     } catch (err: any) {
       logger.warn({
@@ -243,7 +279,9 @@ export class MailService {
         status: 'fallback',
         ...baseLogContext,
         protocol: 'graph',
+        provider: 'graph',
         fallback_reason: 'graph_delete_failed',
+        fallback_used: true,
         error_message: err?.message || 'Unknown error',
       });
     }
@@ -257,6 +295,7 @@ export class MailService {
       const token = await oauthService.refreshImapToken(account.client_id, refreshToken, proxyId, {
         ...baseLogContext,
         protocol: 'imap',
+        provider: 'imap',
       });
       accountModel.updateTokenRefreshTime(accountId, token.refresh_token);
 
@@ -264,6 +303,7 @@ export class MailService {
       await imapService.clearMailbox(account.email, authString, mailbox, {
         ...baseLogContext,
         protocol: 'imap',
+        provider: 'imap',
       });
 
       logger.info({
@@ -271,7 +311,9 @@ export class MailService {
         status: 'succeeded',
         ...baseLogContext,
         protocol: 'imap',
+        provider: 'imap',
         protocol_final: 'imap',
+        fallback_used: true,
         duration_ms: Date.now() - startedAt,
         imap_duration_ms: Date.now() - imapStartedAt,
       });
@@ -280,7 +322,9 @@ export class MailService {
         event: 'mail_service_clear_mailbox',
         status: 'failed',
         ...baseLogContext,
+        provider: 'imap',
         protocol_final: 'imap',
+        fallback_used: true,
         duration_ms: Date.now() - startedAt,
         error_message: err?.message || 'Unknown error',
       });

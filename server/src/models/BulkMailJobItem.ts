@@ -1,6 +1,8 @@
 import db from '../database';
 
-export type BulkMailJobItemStatus = 'queued' | 'running' | 'success' | 'failed';
+const BULK_JOB_ITEM_CANCELLED_ERROR_CODE = 'BULK_JOB_CANCELLED';
+
+export type BulkMailJobItemStatus = 'queued' | 'running' | 'success' | 'failed' | 'cancelled';
 
 export interface BulkMailJobItemRecord {
   id: number;
@@ -131,6 +133,26 @@ export class BulkMailJobItemModel {
           updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(inboxCount, junkCount, totalCount, durationMs, id);
+  }
+
+
+  markCancelled(id: number, reason: string, durationMs: number) {
+    try {
+      db.prepare(`
+        UPDATE bulk_mail_job_items
+        SET status = 'cancelled',
+            error_code = ?,
+            error_message = ?,
+            finished_at = CURRENT_TIMESTAMP,
+            duration_ms = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(BULK_JOB_ITEM_CANCELLED_ERROR_CODE, reason, durationMs, id);
+      return;
+    } catch {
+      // 兼容旧库状态约束不含 cancelled 的场景，回退 failed + 取消错误码
+      this.markFailed(id, BULK_JOB_ITEM_CANCELLED_ERROR_CODE, reason, durationMs);
+    }
   }
 
   markFailed(id: number, errorCode: string, errorMessage: string, durationMs: number) {

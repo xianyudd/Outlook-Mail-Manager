@@ -1,6 +1,6 @@
 # Outlook 邮箱管理器
 
-一个用于批量管理 Microsoft Outlook 邮箱账户的全栈 Web 应用。支持 OAuth2 双协议（Graph API + IMAP）收取邮件，内置代理管理，提供现代化的 Glassmorphism 风格界面。
+一个用于批量管理 Microsoft Outlook 邮箱账户的全栈应用。后端基于 Koa + TypeScript + SQLite，收信链路为 **Graph API 优先，IMAP 降级，缓存兜底**。
 
 ## 界面预览
 
@@ -14,159 +14,267 @@
 
 ## 技术栈
 
-| 层级 | 技术 |
-|------|------|
-| 后端 | Koa 3 + TypeScript + SQLite (better-sqlite3) |
-| 前端 | React 19 + Tailwind CSS 3 + Zustand 5 + Framer Motion 11 |
-| UI 组件 | Radix UI 原语 + 自定义 Glassmorphism 组件 |
-| 邮件协议 | Microsoft Graph API / IMAP (XOAUTH2) |
-| 代理 | SOCKS5 (socks-proxy-agent) / HTTP (undici ProxyAgent) |
+- **Server**: Node.js + Koa 3 + TypeScript + SQLite (better-sqlite3)
+- **Web**: React + Vite + TypeScript + Tailwind
+- **Mail**: Microsoft Graph API / IMAP(XOAUTH2)
+- **Proxy**: SOCKS5 / HTTP
+- **Log**: Winston JSON 文件落盘 + 脱敏
 
-## 功能概览
+## 核心能力
 
-- **仪表盘** — 账户统计、最近邮件、快捷操作
-- **账户管理** — 批量导入/导出、搜索、分页、多选操作、列排序与显隐
-- **标签系统** — 创建/编辑/删除标签，为账户分配标签，右键快速切换
-- **邮件查看** — 三栏布局（账户列表 → 邮件列表 → 邮件正文），支持收件箱/垃圾邮件切换
-- **代理设置** — SOCKS5/HTTP 代理管理、连通性测试、默认代理设置
-- **双协议收信** — Graph API 优先，IMAP 自动降级，本地缓存兜底
-- **访问密码** — 可选的访问密码保护，SHA256 Token 认证
-- **数据备份** — 一键备份/恢复 SQLite 数据库
-- **导入去重** — 两步导入流程（预览 → 确认），支持跳过/覆盖重复项
-- **深色/浅色主题** — 跟随系统或手动切换
-- **响应式布局** — 移动端适配，侧边栏抽屉模式
+- 邮箱账号管理（导入/导出/标签）
+- Graph→IMAP 自动降级拉信
+- 批量拉信任务（job）
+- 批量任务详情页（状态、子任务、日志、取消）
+- 结构化日志 + request_id 追踪
+- 健康探针 / 就绪探针
+- 轻量审计事件（高价值动作）
+- 只读模式（READ_ONLY_MODE）
 
-## 项目结构
+---
 
-```
-outlook-mail-manager/
-├── server/                  # 后端服务
+## 目录结构
+
+```text
+Outlook-Mail-Manager/
+├── server/
+│   ├── src/
+│   │   ├── config/
+│   │   ├── controllers/
+│   │   ├── database/
+│   │   ├── middlewares/
+│   │   ├── models/
+│   │   ├── routes/
+│   │   ├── services/
+│   │   ├── types/
+│   │   └── utils/
+│   └── data/
+├── web/
 │   └── src/
-│       ├── config/          # 环境配置
-│       ├── controllers/     # 请求处理器
-│       ├── database/        # SQLite 连接 & 迁移
-│       ├── middlewares/      # 日志 & 错误处理
-│       ├── models/          # 数据访问层
-│       ├── routes/          # API 路由
-│       ├── services/        # 业务逻辑（OAuth、Graph、IMAP、代理）
-│       ├── types/           # TypeScript 类型定义
-│       └── utils/           # 工具函数
-├── web/                     # 前端应用
-│   └── src/
-│       ├── components/      # UI 组件（按模块分组）
-│       ├── lib/             # API 客户端 & 工具函数
-│       ├── pages/           # 页面组件
-│       ├── stores/          # Zustand 状态管理
-│       └── types/           # 前端类型定义
-├── .env.example             # 环境变量模板
-└── package.json             # 根 monorepo 配置
+└── .env.example
 ```
 
-## 快速开始
+---
 
-### 环境要求
+## 快速开始（pnpm）
 
-- Node.js >= 18
-- npm >= 9
+### 1) 安装依赖
 
-### 安装
+> 本仓库不是单一 pnpm workspace，建议分别安装根目录与子项目依赖。
 
 ```bash
-# 克隆项目后，一键安装所有依赖
-npm run install:all
+# 根目录（开发脚本工具）
+pnpm install
+
+# 后端依赖
+pnpm -C server install
+
+# 前端依赖
+pnpm -C web install
 ```
 
-### 配置
-
-复制环境变量模板并按需修改：
+### 2) 配置环境变量
 
 ```bash
 cp .env.example .env
 ```
 
+常用配置：
+
 | 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `PORT` | `3000` | 服务端口 |
+|---|---|---|
+| `PORT` | `3000` | 后端端口 |
 | `LOG_LEVEL` | `info` | 日志级别 |
-| `DB_PATH` | `./data/outlook.db` | SQLite 数据库路径（相对于 server/） |
-| `ACCESS_PASSWORD` | _(空)_ | 访问密码，留空则不启用认证 |
+| `LOG_DIR` | `./data/logs` | 日志目录（相对 server） |
+| `DB_PATH` | `./data/outlook.db` | SQLite 文件路径（相对 server） |
+| `ACCESS_PASSWORD` | 空 | 可选 API 访问密码 |
+| `MAIL_FETCH_ENABLED` | `true` | 是否允许拉信 |
+| `MAIL_CLEAR_REMOTE_ENABLED` | `false` | 是否允许远端清空邮箱 |
+| `BULK_PULL_ENABLED` | `true` | 是否允许批量拉信 |
+| `READ_ONLY_MODE` | `false` | 只读模式（拒绝写操作） |
+| `DEBUG_LOG_ENABLED` | `false` | debug 日志开关 |
 
-### 开发模式
-
-```bash
-# 同时启动前后端（热重载）
-npm run dev
-```
-
-- 前端：http://localhost:5173（Vite dev server，自动代理 `/api` 到后端）
-- 后端：http://localhost:3000
-
-### 生产构建
+### 3) 开发模式
 
 ```bash
-# 构建前端
-npm run build
-
-# 启动后端（同时托管前端静态文件）
-npm start
+pnpm -C server dev
+pnpm -C web dev
 ```
 
-访问 http://localhost:3000 即可使用。
+- Web: `http://localhost:5173`
+- Server: `http://localhost:3000`
 
-## API 端点
+### 4) 构建
 
-### 账户 `/api/accounts`
+```bash
+pnpm -C server build
+pnpm -C web build
+```
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/` | 获取账户列表（支持分页、搜索） |
-| GET | `/:id` | 获取单个账户 |
-| POST | `/` | 创建账户 |
-| PUT | `/:id` | 更新账户 |
-| DELETE | `/:id` | 删除账户 |
-| POST | `/batch-delete` | 批量删除 |
-| POST | `/import` | 批量导入 |
-| GET | `/export/all` | 导出全部 |
+### 5) 运行（生产）
+
+```bash
+pnpm -C server start
+```
+
+---
+
+## 健康检查与就绪检查
+
+### `GET /api/healthz`
+- 基础存活检查（进程/时间戳等）
+
+### `GET /api/readyz`
+- 就绪检查（数据库可用、日志目录可写）
+- 失败时返回 503
+
+---
+
+## API 概览
+
+### 账号 `/api/accounts`
+- `GET /`
+- `POST /`
+- `PUT /:id`
+- `DELETE /:id`
+- `POST /batch-delete`
+- `POST /import`
+- `POST /import-preview`
+- `POST /import-confirm`
+- `POST /export`
+- `POST /:id/tags`
 
 ### 邮件 `/api/mails`
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/fetch` | 拉取邮件（Graph API → IMAP 降级） |
-| POST | `/fetch-new` | 仅拉取新邮件 |
-| GET | `/cached/:accountId` | 获取缓存邮件 |
-| DELETE | `/clear/:accountId` | 清除缓存 |
+- `POST /fetch`
+- `POST /fetch-new`
+- `DELETE /clear`
+- `GET /cached`
 
 ### 代理 `/api/proxies`
+- `GET /`
+- `POST /`
+- `PUT /:id`
+- `DELETE /:id`
+- `POST /:id/test`
+- `PUT /:id/default`
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/` | 获取代理列表 |
-| POST | `/` | 创建代理 |
-| PUT | `/:id` | 更新代理 |
-| DELETE | `/:id` | 删除代理 |
-| POST | `/:id/test` | 测试连通性 |
-| PUT | `/:id/set-default` | 设为默认 |
+### 标签 `/api/tags`
+- `GET /`
+- `POST /`
+- `PUT /:id`
+- `DELETE /:id`
 
-### 仪表盘 `/api/dashboard`
+### 备份 `/api/backup`
+- `GET /download`
+- `POST /restore`
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/stats` | 获取统计数据 |
+### 批量任务 `/api/bulk-mail-jobs`
+- `POST /` 创建并启动任务
+- `GET /:jobId` 查询任务状态/进度
+- `GET /:jobId/items` 查询子任务分页
+- `GET /:jobId/logs` 查询任务日志分页
+- `POST /:jobId/cancel` 取消任务（queued/running）
 
-## 账户导入格式
+### 其它
+- `GET /api/dashboard/stats`
+- `GET /api/auth/check`
+- `POST /api/auth/login`
 
-支持文本批量导入，每行一个账户，字段用分隔符分隔：
+---
 
+## 批量任务状态
+
+- Job: `queued | running | completed | partial_success | failed | cancelled`
+- Item: `queued | running | success | failed | cancelled`
+
+日志字段建议追踪：
+- `request_id`
+- `job_id`
+- `account_id`
+- `mailbox`
+- `provider`
+- `status`
+- `duration_ms`
+
+---
+
+## 审计能力（audit_events）
+
+仅记录高价值事件，不记录普通运行日志。
+
+### 表结构字段
+- `id`
+- `ts`
+- `actor_type`
+- `actor_id`
+- `action`
+- `target_type`
+- `target_id`
+- `mailbox`
+- `status`
+- `reason`
+- `request_id`
+- `job_id`
+- `extra_json`
+
+### 已覆盖动作（示例）
+- `mail.fetch.manual`
+- `mail.clear`
+- `proxy.create / proxy.update / proxy.delete / proxy.set_default`
+- `guard.read_only.reject`
+- `bulk.job.start / bulk.job.cancel / bulk.job.complete / bulk.job.fail`
+
+> 审计 `extra_json` 走脱敏和敏感字段裁剪，不写入邮件正文/附件内容。
+
+---
+
+## P0~P3 验证建议
+
+### P0（透传 / Graph 重试 / client-request-id）
+1. 创建 bulk 任务后查看日志，确认同一条链路可按 `request_id + job_id` 串联。
+2. 触发 Graph 限流/临时错误，确认存在有限重试日志：
+   - `event=graph_request_retry`
+   - 包含 `attempt/status_code/retry_after/client_request_id`
+
+### P1（bulk logs + cancel + 前端详情）
+1. `GET /api/bulk-mail-jobs/:jobId/logs` 可返回分页数据。
+2. `POST /api/bulk-mail-jobs/:jobId/cancel` 可取消 queued/running 任务。
+3. 前端 `/bulk-jobs/:jobId` 可查看任务信息、子任务、日志并执行取消。
+
+### P2（audit）
+1. 执行一次手动拉信/清空邮箱/代理修改。
+2. 查询 `audit_events`，确认写入对应 action。
+3. 开启 `READ_ONLY_MODE=true` 后触发清空邮箱，确认落 `guard.read_only.reject`。
+
+### P3（回归测试）
+```bash
+pnpm -C server test
 ```
-邮箱----密码----客户端ID----刷新令牌
+
+测试文件位置：`server/src/tests/p3-regression.test.ts`
+
+覆盖关键回归点：
+- bulk request_id/job_id 透传
+- Graph 重试逻辑
+- bulk logs/cancel API 处理
+- audit 写入封装
+- 只读模式拒绝审计
+
+### 一键验证命令（P0~P3）
+```bash
+pnpm -C server build
+pnpm -C server test
+pnpm -C web build
 ```
 
-分隔符可自定义（默认 `----`）。
+---
 
 ## 致谢
 
-本项目的 OAuth2 认证流程参考了 [MS_OAuth2API_Next](https://github.com/aa1125573296-svg/Outlook-Mail-Manager/raw/refs/heads/main/web/src/lib/Outlook-Manager-Mail-v1.1.zip)，感谢原作者 [@HChaoHui](https://github.com/aa1125573296-svg/Outlook-Mail-Manager/raw/refs/heads/main/web/src/lib/Outlook-Manager-Mail-v1.1.zip) 的开源贡献。
+本仓库是基于上游项目的二次维护与增强版本，感谢上游作者与贡献者：
+
+- 上游仓库：[`aa1125573296-svg/Outlook-Mail-Manager`](https://github.com/aa1125573296-svg/Outlook-Mail-Manager)
+- 当前维护 Fork：[`xianyudd/Outlook-Mail-Manager`](https://github.com/xianyudd/Outlook-Mail-Manager)
 
 ## License
 

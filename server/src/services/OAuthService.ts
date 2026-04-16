@@ -12,9 +12,12 @@ interface TokenResult {
 
 interface OAuthLogContext {
   request_id?: string;
+  job_id?: string;
   account_id?: number;
   account_email?: string;
   mailbox?: string;
+  provider?: string;
+  operation?: string;
   proxy_id?: number;
   protocol?: 'graph' | 'imap';
 }
@@ -33,16 +36,27 @@ export class OAuthService {
     logContext?: OAuthLogContext
   ): Promise<TokenResult> {
     const startedAt = Date.now();
-    const { agent, dispatcher, type } = proxyService.getAgent(proxyId);
+    const { agent, dispatcher, type } = proxyService.getAgent(proxyId, {
+      request_id: logContext?.request_id,
+      job_id: logContext?.job_id,
+      account_id: logContext?.account_id,
+      mailbox: logContext?.mailbox,
+      provider: 'graph',
+      operation: 'oauth_refresh_graph',
+      proxy_id: proxyId,
+    });
     const proxyType = type || 'none';
     const baseLog = {
       request_id: logContext?.request_id || 'unknown',
+      job_id: logContext?.job_id,
       account_id: logContext?.account_id,
       account_email: logContext?.account_email,
       mailbox: logContext?.mailbox,
+      operation: logContext?.operation || 'oauth_refresh_graph',
       proxy_id: proxyId,
       proxy_type: proxyType,
       protocol: 'graph',
+      provider: logContext?.provider || 'graph',
       client_id_suffix: maskClientId(clientId),
     };
 
@@ -123,16 +137,27 @@ export class OAuthService {
     logContext?: OAuthLogContext
   ): Promise<TokenResult> {
     const startedAt = Date.now();
-    const { agent, dispatcher, type } = proxyService.getAgent(proxyId);
+    const { agent, dispatcher, type } = proxyService.getAgent(proxyId, {
+      request_id: logContext?.request_id,
+      job_id: logContext?.job_id,
+      account_id: logContext?.account_id,
+      mailbox: logContext?.mailbox,
+      provider: 'imap',
+      operation: 'oauth_refresh_imap',
+      proxy_id: proxyId,
+    });
     const proxyType = type || 'none';
     const baseLog = {
       request_id: logContext?.request_id || 'unknown',
+      job_id: logContext?.job_id,
       account_id: logContext?.account_id,
       account_email: logContext?.account_email,
       mailbox: logContext?.mailbox,
+      operation: logContext?.operation || 'oauth_refresh_imap',
       proxy_id: proxyId,
       proxy_type: proxyType,
       protocol: 'imap',
+      provider: logContext?.provider || 'imap',
       client_id_suffix: maskClientId(clientId),
     };
 

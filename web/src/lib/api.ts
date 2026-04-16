@@ -1,4 +1,21 @@
-import type { ApiResponse, PaginatedResponse, Account, MailMessage, Proxy, ImportRequest, ImportResult, ExportRequest, DashboardStats, ProxyTestResult, FetchMailsResult, Tag, ImportPreviewResult } from '../types';
+import type {
+  ApiResponse,
+  PaginatedResponse,
+  Account,
+  MailMessage,
+  Proxy,
+  ImportRequest,
+  ImportResult,
+  ExportRequest,
+  DashboardStats,
+  ProxyTestResult,
+  FetchMailsResult,
+  Tag,
+  ImportPreviewResult,
+  BulkMailJob,
+  BulkMailJobItem,
+  BulkMailJobLog,
+} from '../types';
 
 const API_BASE = '/api';
 
@@ -82,6 +99,17 @@ export const authApi = {
   check: () => request<{ required: boolean }>('/auth/check'),
   login: (password: string) =>
     request<{ token: string; required: boolean }>('/auth/login', { method: 'POST', body: JSON.stringify({ password }) }),
+};
+
+export const bulkJobApi = {
+  detail: (jobId: string) =>
+    request<BulkMailJob>(`/bulk-mail-jobs/${encodeURIComponent(jobId)}`),
+  items: (jobId: string, params?: { page?: number; pageSize?: number }) =>
+    request<PaginatedResponse<BulkMailJobItem>>(`/bulk-mail-jobs/${encodeURIComponent(jobId)}/items?${qs(params)}`),
+  logs: (jobId: string, params?: { page?: number; pageSize?: number }) =>
+    request<PaginatedResponse<BulkMailJobLog>>(`/bulk-mail-jobs/${encodeURIComponent(jobId)}/logs?${qs(params)}`),
+  cancel: (jobId: string) =>
+    request<{ job_id: string; status: string }>(`/bulk-mail-jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' }),
 };
 
 export const tagApi = {

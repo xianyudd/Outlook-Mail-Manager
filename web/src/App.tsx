@@ -5,6 +5,7 @@ import { AppLayout } from './components/layout/AppLayout';
 import Dashboard from './pages/Dashboard';
 import Accounts from './pages/Accounts';
 import ProxySettings from './pages/ProxySettings';
+import BulkJobs from './pages/BulkJobs';
 import { LoginDialog } from './components/auth/LoginDialog';
 import { authApi } from './lib/api';
 
@@ -45,6 +46,8 @@ export default function App() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/accounts" element={<Accounts />} />
           <Route path="/proxy" element={<ProxySettings />} />
+          <Route path="/bulk-jobs" element={<BulkJobs />} />
+          <Route path="/bulk-jobs/:jobId" element={<BulkJobs />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
         </Route>
       </Routes>

@@ -1,10 +1,16 @@
 import crypto from 'crypto';
 import { AccountModel } from '../models/Account';
-import { BulkMailJobModel, BulkMailJobRecord } from '../models/BulkMailJob';
+import {
+  BULK_JOB_CANCELLED_ERROR_CODE,
+  BulkMailJobModel,
+  BulkMailJobRecord,
+  BulkMailJobStatus,
+} from '../models/BulkMailJob';
 import { BulkMailJobItemModel } from '../models/BulkMailJobItem';
 import { BulkMailJobLogModel } from '../models/BulkMailJobLog';
 import { bulkMailWorkerService } from './BulkMailWorkerService';
 import logger from '../utils/logger';
+import { auditService, AuditActions } from './AuditService';
 
 interface CreateBulkMailJobPayload {
   name?: string;
@@ -88,6 +94,25 @@ export class BulkMailJobService {
       workers,
     });
 
+    auditService.write({
+      actor_type: 'api',
+      actor_id: 'system',
+      action: AuditActions.BULK_JOB_START,
+      target_type: 'bulk_job',
+      target_id: jobId,
+      status: 'queued',
+      request_id: requestId || undefined,
+      job_id: jobId,
+      extra: {
+        total_accounts: accounts.length,
+        batch_size: batchSize,
+        workers,
+        top,
+        mailboxes,
+        proxy_id: proxyId,
+      },
+    });
+
     bulkMailWorkerService.start(jobId, requestId);
 
     return this.jobModel.getByJobId(jobId)!;
@@ -96,6 +121,7 @@ export class BulkMailJobService {
   getJob(jobId: string) {
     const job = this.jobModel.getByJobId(jobId);
     if (!job) return null;
+    const effectiveStatus = this.getEffectiveStatus(job);
 
     const percent = job.total_accounts > 0
       ? Number(((job.processed_accounts / job.total_accounts) * 100).toFixed(2))
@@ -103,6 +129,8 @@ export class BulkMailJobService {
 
     return {
       ...job,
+      status: effectiveStatus,
+      can_cancel: this.isCancellableStatus(effectiveStatus),
       progress: {
         total_accounts: job.total_accounts,
         processed_accounts: job.processed_accounts,
@@ -120,6 +148,60 @@ export class BulkMailJobService {
     const job = this.jobModel.getByJobId(jobId);
     if (!job) return null;
     return this.itemModel.getByJob(jobId, page, pageSize);
+  }
+
+  getJobLogs(jobId: string, page = 1, pageSize = 50) {
+    const job = this.jobModel.getByJobId(jobId);
+    if (!job) return null;
+    return this.logModel.getByJob(jobId, page, pageSize);
+  }
+
+  cancelJob(jobId: string, requestId: string) {
+    const job = this.jobModel.getByJobId(jobId);
+    if (!job) return null;
+
+    const effectiveStatus = this.getEffectiveStatus(job);
+    if (!this.isCancellableStatus(effectiveStatus)) {
+      return this.getJob(jobId);
+    }
+
+    const effectiveRequestId = requestId || job.request_id || null;
+    const reason = 'Cancelled by user';
+    const firstSignal = bulkMailWorkerService.requestCancel(jobId, effectiveRequestId || '');
+
+    this.jobModel.cancel(jobId, reason);
+    this.logModel.create({
+      job_id: jobId,
+      request_id: effectiveRequestId,
+      level: 'warn',
+      event: firstSignal ? 'job_cancel_requested' : 'job_cancel_already_requested',
+      status: 'cancelled',
+      message: reason,
+    });
+
+    auditService.write({
+      actor_type: 'api',
+      actor_id: 'system',
+      action: AuditActions.BULK_JOB_CANCEL,
+      target_type: 'bulk_job',
+      target_id: jobId,
+      status: 'cancelled',
+      reason,
+      request_id: effectiveRequestId || undefined,
+      job_id: jobId,
+      extra: {
+        first_signal: firstSignal,
+      },
+    });
+
+    logger.warn('bulk_mail_job_cancel_requested', {
+      job_id: jobId,
+      request_id: effectiveRequestId || undefined,
+      status: 'cancelled',
+      operation: 'bulk_job_cancel',
+    });
+
+    return this.getJob(jobId);
   }
 
   private generateJobId(): string {
@@ -167,5 +249,16 @@ export class BulkMailJobService {
     }
 
     return activeAccounts.filter((account) => idSet.has(account.id));
+  }
+
+  private isCancellableStatus(status: BulkMailJobStatus): boolean {
+    return status === 'queued' || status === 'running';
+  }
+
+  private getEffectiveStatus(job: BulkMailJobRecord): BulkMailJobStatus {
+    if (job.error_code === BULK_JOB_CANCELLED_ERROR_CODE) {
+      return 'cancelled';
+    }
+    return job.status;
   }
 }

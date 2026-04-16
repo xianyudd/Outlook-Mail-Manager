@@ -123,3 +123,87 @@ export interface FetchMailsResult {
   protocol: 'graph' | 'imap';
   cached: boolean;
 }
+
+// ============ 批量任务 ============
+export type BulkMailJobStatus = 'queued' | 'running' | 'completed' | 'partial_success' | 'failed' | 'cancelled';
+export type BulkMailJobItemStatus = 'queued' | 'running' | 'success' | 'failed' | 'cancelled';
+export type BulkMailJobLogLevel = 'info' | 'warn' | 'error';
+
+export interface BulkMailJobProgress {
+  total_accounts: number;
+  processed_accounts: number;
+  success_accounts: number;
+  failed_accounts: number;
+  current_batch: number;
+  total_batches: number;
+  percent: number;
+}
+
+export interface BulkMailJob {
+  id: number;
+  job_id: string;
+  name: string;
+  status: BulkMailJobStatus;
+  mailboxes_json: string;
+  top: number;
+  batch_size: number;
+  workers: number;
+  proxy_id: number | null;
+  total_accounts: number;
+  processed_accounts: number;
+  success_accounts: number;
+  failed_accounts: number;
+  current_batch: number;
+  total_batches: number;
+  inbox_total: number;
+  junk_total: number;
+  mail_total: number;
+  request_id: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  updated_at: string;
+  progress?: BulkMailJobProgress;
+  worker_running?: boolean;
+  can_cancel?: boolean;
+}
+
+export interface BulkMailJobItem {
+  id: number;
+  job_id: string;
+  batch_no: number;
+  account_id: number;
+  account_email: string;
+  status: BulkMailJobItemStatus;
+  retry_count: number;
+  mailboxes_json: string;
+  top: number;
+  inbox_count: number;
+  junk_count: number;
+  fetched_total: number;
+  request_id: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_ms: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BulkMailJobLog {
+  id: number;
+  job_id: string;
+  item_id: number | null;
+  request_id: string | null;
+  account_email: string | null;
+  level: BulkMailJobLogLevel;
+  event: string;
+  status: string | null;
+  error_code: string | null;
+  message: string | null;
+  meta_json: string | null;
+  created_at: string;
+}

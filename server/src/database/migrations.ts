@@ -69,7 +69,7 @@ export function runMigrations() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       job_id TEXT NOT NULL UNIQUE,
       name TEXT DEFAULT '',
-      status TEXT NOT NULL CHECK(status IN ('queued', 'running', 'completed', 'partial_success', 'failed')),
+      status TEXT NOT NULL CHECK(status IN ('queued', 'running', 'completed', 'partial_success', 'failed', 'cancelled')),
       mailboxes_json TEXT NOT NULL,
       top INTEGER NOT NULL DEFAULT 50,
       batch_size INTEGER NOT NULL DEFAULT 50,
@@ -102,7 +102,7 @@ export function runMigrations() {
       batch_no INTEGER NOT NULL,
       account_id INTEGER NOT NULL,
       account_email TEXT NOT NULL,
-      status TEXT NOT NULL CHECK(status IN ('queued', 'running', 'success', 'failed')),
+      status TEXT NOT NULL CHECK(status IN ('queued', 'running', 'success', 'failed', 'cancelled')),
       retry_count INTEGER NOT NULL DEFAULT 0,
       mailboxes_json TEXT NOT NULL,
       top INTEGER NOT NULL DEFAULT 50,
@@ -147,6 +147,29 @@ export function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_bulk_mail_job_logs_job ON bulk_mail_job_logs(job_id);
     CREATE INDEX IF NOT EXISTS idx_bulk_mail_job_logs_request ON bulk_mail_job_logs(request_id);
     CREATE INDEX IF NOT EXISTS idx_bulk_mail_job_logs_level ON bulk_mail_job_logs(level);
+
+    CREATE TABLE IF NOT EXISTS audit_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      actor_type TEXT NOT NULL DEFAULT 'system',
+      actor_id TEXT,
+      action TEXT NOT NULL,
+      target_type TEXT,
+      target_id TEXT,
+      mailbox TEXT,
+      status TEXT NOT NULL,
+      reason TEXT,
+      request_id TEXT,
+      job_id TEXT,
+      extra_json TEXT NOT NULL DEFAULT '{}'
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_audit_events_ts ON audit_events(ts DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_action ON audit_events(action);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_status ON audit_events(status);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_request ON audit_events(request_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_job ON audit_events(job_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_target ON audit_events(target_type, target_id);
   `);
 
   // 新增 token_refreshed_at 字段（兼容已有数据库）

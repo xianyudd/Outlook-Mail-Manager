@@ -1,12 +1,15 @@
 import db from '../database';
 
-export type BulkMailJobStatus = 'queued' | 'running' | 'completed' | 'partial_success' | 'failed';
+export const BULK_JOB_CANCELLED_ERROR_CODE = 'BULK_JOB_CANCELLED';
+
+export type BulkMailJobDbStatus = 'queued' | 'running' | 'completed' | 'partial_success' | 'failed' | 'cancelled';
+export type BulkMailJobStatus = BulkMailJobDbStatus;
 
 export interface BulkMailJobRecord {
   id: number;
   job_id: string;
   name: string;
-  status: BulkMailJobStatus;
+  status: BulkMailJobDbStatus;
   mailboxes_json: string;
   top: number;
   batch_size: number;
@@ -33,7 +36,7 @@ export interface BulkMailJobRecord {
 export interface CreateBulkMailJobInput {
   job_id: string;
   name: string;
-  status: BulkMailJobStatus;
+  status: BulkMailJobDbStatus;
   mailboxes_json: string;
   top: number;
   batch_size: number;
@@ -122,7 +125,7 @@ export class BulkMailJobModel {
     );
   }
 
-  finalize(jobId: string, status: BulkMailJobStatus, errorCode?: string | null, errorMessage?: string | null) {
+  finalize(jobId: string, status: BulkMailJobDbStatus, errorCode?: string | null, errorMessage?: string | null) {
     db.prepare(`
       UPDATE bulk_mail_jobs
       SET status = ?,
@@ -132,5 +135,31 @@ export class BulkMailJobModel {
           updated_at = CURRENT_TIMESTAMP
       WHERE job_id = ?
     `).run(status, errorCode ?? null, errorMessage ?? null, jobId);
+  }
+
+  cancel(jobId: string, reason = 'Cancelled by user') {
+    try {
+      db.prepare(`
+        UPDATE bulk_mail_jobs
+        SET status = 'cancelled',
+            error_code = ?,
+            error_message = ?,
+            finished_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE job_id = ?
+      `).run(BULK_JOB_CANCELLED_ERROR_CODE, reason, jobId);
+      return;
+    } catch {
+      // 兼容旧库状态约束不含 cancelled 的场景，回退为 failed + 取消错误码
+      db.prepare(`
+        UPDATE bulk_mail_jobs
+        SET status = 'failed',
+            error_code = ?,
+            error_message = ?,
+            finished_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE job_id = ?
+      `).run(BULK_JOB_CANCELLED_ERROR_CODE, reason, jobId);
+    }
   }
 }
