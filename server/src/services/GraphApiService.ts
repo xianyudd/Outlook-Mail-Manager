@@ -10,6 +10,8 @@ const MAX_RETRY_ATTEMPTS = 4;
 const BASE_RETRY_DELAY_MS = 400;
 const MAX_RETRY_DELAY_MS = 5000;
 const MAX_SERVER_RETRY_AFTER_MS = 15000;
+const GRAPH_MAX_TOP = 1000;
+const GRAPH_DELETE_BATCH_SIZE = 10;
 
 interface GraphLogContext {
   request_id?: string;
@@ -40,8 +42,9 @@ export class GraphApiService {
     logContext?: GraphLogContext
   ): Promise<Partial<MailMessage>[]> {
     const startedAt = Date.now();
-    const folder = mailbox === 'Junk' ? 'junkemail' : 'inbox';
-    const clientRequestId = this.buildClientRequestId(logContext?.request_id);
+    const folder = this.resolveGraphFolder(mailbox);
+    const requestedTop = this.normalizeTop(top);
+    const pageTop = Math.min(requestedTop, GRAPH_MAX_TOP);
     const { agent, dispatcher, type } = proxyService.getAgent(proxyId, {
       request_id: logContext?.request_id,
       job_id: logContext?.job_id,
@@ -59,13 +62,13 @@ export class GraphApiService {
       account_email: logContext?.account_email,
       mailbox,
       folder,
-      top,
+      top: requestedTop,
+      page_top: pageTop,
       proxy_id: proxyId,
       proxy_type: type || 'none',
       protocol: 'graph',
       provider: logContext?.provider || 'graph',
       operation: logContext?.operation || 'fetch_mails',
-      client_request_id: clientRequestId,
     };
 
     logger.info({
@@ -74,66 +77,68 @@ export class GraphApiService {
       ...baseLog,
     });
 
-    const url = `https://graph.microsoft.com/v1.0/me/mailFolders/${folder}/messages?$top=${top}`;
+    const emails: Partial<MailMessage>[] = [];
+    let page = 0;
+    let nextUrl: string | undefined = `https://graph.microsoft.com/v1.0/me/mailFolders/${folder}/messages?$top=${pageTop}`;
 
-    let requestResult: GraphRequestResult;
-    try {
-      requestResult = await this.requestWithRetry({
-        url,
-        method: 'GET',
+    while (nextUrl && emails.length < requestedTop) {
+      page += 1;
+      const clientRequestId = this.buildClientRequestId(logContext?.request_id);
+      const requestResult = await this.runGraphGetWithLogging({
+        url: nextUrl,
         accessToken,
         agent,
         dispatcher,
         type,
-        baseLog,
+        baseLog: {
+          ...baseLog,
+          page,
+          client_request_id: clientRequestId,
+        },
         clientRequestId,
-      });
-    } catch (err: any) {
-      logger.error({
+        startedAt,
         event: 'graph_fetch_mails',
-        status: 'failed',
-        ...baseLog,
-        attempt: err?.attempt || 1,
-        duration_ms: Date.now() - startedAt,
-        error_code: this.getErrorCode(err),
-        error_message: err?.message || 'Graph request failed',
       });
-      throw err;
-    }
 
-    const { response, attempt, retry_after } = requestResult;
-    if (!response.ok) {
-      const errorText = await response.text();
-      logger.warn({
-        event: 'graph_fetch_mails',
-        status: 'failed',
+      const data = await requestResult.response.json();
+      const pageEmails = (data.value || []).map((item: any) => ({
+        mail_id: item.id,
+        sender: item.from?.emailAddress?.address || '',
+        sender_name: item.from?.emailAddress?.name || '',
+        subject: item.subject || '',
+        text_content: item.bodyPreview || '',
+        html_content: item.body?.content || '',
+        mail_date: item.createdDateTime || '',
+      }));
+
+      const remain = requestedTop - emails.length;
+      emails.push(...pageEmails.slice(0, Math.max(0, remain)));
+
+      const rawNextLink = typeof data?.['@odata.nextLink'] === 'string' ? data['@odata.nextLink'] : '';
+      const hasNextLink = Boolean(rawNextLink && emails.length < requestedTop);
+
+      logger.info({
+        event: 'graph_fetch_mails_page',
+        status: 'succeeded',
         ...baseLog,
-        status_code: response.status,
-        retry_after: retry_after ?? null,
-        attempt,
+        page,
+        page_mail_count: pageEmails.length,
+        accumulated_mail_count: emails.length,
+        has_next_link: hasNextLink,
+        attempt: requestResult.attempt,
+        retry_after: requestResult.retry_after ?? null,
         duration_ms: Date.now() - startedAt,
-        error_message: errorText.slice(0, 300),
       });
-      throw new Error(`Graph API fetch failed: ${response.status} - ${errorText}`);
-    }
 
-    const data = await response.json();
-    const emails = (data.value || []).map((item: any) => ({
-      mail_id: item.id,
-      sender: item.from?.emailAddress?.address || '',
-      sender_name: item.from?.emailAddress?.name || '',
-      subject: item.subject || '',
-      text_content: item.bodyPreview || '',
-      html_content: item.body?.content || '',
-      mail_date: item.createdDateTime || '',
-    }));
+      nextUrl = hasNextLink ? rawNextLink : undefined;
+    }
 
     logger.info({
       event: 'graph_fetch_mails',
       status: 'succeeded',
       ...baseLog,
       mail_count: emails.length,
-      attempt,
+      pages: page,
       duration_ms: Date.now() - startedAt,
     });
     return emails;
@@ -217,6 +222,17 @@ export class GraphApiService {
 
   async deleteAllMails(accessToken: string, mailbox: string, proxyId?: number, logContext?: GraphLogContext): Promise<void> {
     const startedAt = Date.now();
+    const folder = this.resolveGraphFolder(mailbox);
+    const { agent, dispatcher, type } = proxyService.getAgent(proxyId, {
+      request_id: logContext?.request_id,
+      job_id: logContext?.job_id,
+      account_id: logContext?.account_id,
+      mailbox,
+      provider: 'graph',
+      operation: 'graph_delete_all_mails',
+      proxy_id: proxyId,
+    });
+
     logger.info({
       event: 'graph_delete_all_mails',
       status: 'started',
@@ -232,45 +248,82 @@ export class GraphApiService {
     });
 
     try {
-      const mails = await this.fetchMails(accessToken, mailbox, 10000, proxyId, {
-        ...logContext,
-        mailbox,
-        provider: 'graph',
-        operation: 'delete_all_mails_list',
-      });
-      const batchSize = 10;
+      let page = 0;
+      let totalTargetCount = 0;
       let failedDeleteCount = 0;
+      let nextUrl: string | undefined =
+        `https://graph.microsoft.com/v1.0/me/mailFolders/${folder}/messages?$top=${GRAPH_MAX_TOP}&$select=id`;
 
-      for (let i = 0; i < mails.length; i += batchSize) {
-        const batch = mails.slice(i, i + batchSize);
-        const settled = await Promise.allSettled(batch.map((m) => this.deleteMail(accessToken, m.mail_id!, proxyId, {
-          ...logContext,
-          mailbox,
-          provider: 'graph',
-          operation: 'delete_mail',
-        })));
-
-        const failedInBatch = settled.filter((item) => item.status === 'rejected').length;
-        failedDeleteCount += failedInBatch;
-
-        if (failedInBatch > 0) {
-          logger.warn({
-            event: 'graph_delete_all_mails_batch_partial_failed',
-            status: 'partial_failed',
+      while (nextUrl) {
+        page += 1;
+        const clientRequestId = this.buildClientRequestId(logContext?.request_id);
+        const pageResult = await this.runGraphGetWithLogging({
+          url: nextUrl,
+          accessToken,
+          agent,
+          dispatcher,
+          type,
+          baseLog: {
             request_id: logContext?.request_id || 'unknown',
             job_id: logContext?.job_id,
             account_id: logContext?.account_id,
             account_email: logContext?.account_email,
             mailbox,
             proxy_id: proxyId,
+            proxy_type: type || 'none',
             protocol: 'graph',
             provider: logContext?.provider || 'graph',
             operation: logContext?.operation || 'delete_all_mails',
-            batch_start: i,
-            batch_size: batch.length,
-            failed_in_batch: failedInBatch,
-          });
+            page,
+            client_request_id: clientRequestId,
+          },
+          clientRequestId,
+          startedAt,
+          event: 'graph_delete_all_mails_list',
+        });
+
+        const data = await pageResult.response.json();
+        const ids = (data.value || [])
+          .map((item: any) => item?.id)
+          .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
+
+        totalTargetCount += ids.length;
+
+        for (let i = 0; i < ids.length; i += GRAPH_DELETE_BATCH_SIZE) {
+          const batch = ids.slice(i, i + GRAPH_DELETE_BATCH_SIZE);
+          const settled = await Promise.allSettled(batch.map((mailId: string) => this.deleteMail(accessToken, mailId, proxyId, {
+            ...logContext,
+            mailbox,
+            provider: 'graph',
+            operation: 'delete_mail',
+          })));
+
+          const failedInBatch = settled.filter((item) => item.status === 'rejected').length;
+          failedDeleteCount += failedInBatch;
+
+          if (failedInBatch > 0) {
+            logger.warn({
+              event: 'graph_delete_all_mails_batch_partial_failed',
+              status: 'partial_failed',
+              request_id: logContext?.request_id || 'unknown',
+              job_id: logContext?.job_id,
+              account_id: logContext?.account_id,
+              account_email: logContext?.account_email,
+              mailbox,
+              proxy_id: proxyId,
+              protocol: 'graph',
+              provider: logContext?.provider || 'graph',
+              operation: logContext?.operation || 'delete_all_mails',
+              page,
+              batch_start: i,
+              batch_size: batch.length,
+              failed_in_batch: failedInBatch,
+            });
+          }
         }
+
+        const rawNextLink = typeof data?.['@odata.nextLink'] === 'string' ? data['@odata.nextLink'] : '';
+        nextUrl = rawNextLink || undefined;
       }
 
       if (failedDeleteCount > 0) {
@@ -289,8 +342,9 @@ export class GraphApiService {
         protocol: 'graph',
         provider: logContext?.provider || 'graph',
         operation: logContext?.operation || 'delete_all_mails',
-        total_target_count: mails.length,
+        total_target_count: totalTargetCount,
         failed_delete_count: failedDeleteCount,
+        pages: page,
         duration_ms: Date.now() - startedAt,
       });
     } catch (err: any) {
@@ -390,6 +444,63 @@ export class GraphApiService {
     throw new Error('Graph request exceeded retry limit');
   }
 
+  private async runGraphGetWithLogging(params: {
+    url: string;
+    accessToken: string;
+    agent?: unknown;
+    dispatcher?: unknown;
+    type?: string;
+    baseLog: Record<string, unknown>;
+    clientRequestId: string;
+    startedAt: number;
+    event: string;
+  }): Promise<GraphRequestResult> {
+    const { url, accessToken, agent, dispatcher, type, baseLog, clientRequestId, startedAt, event } = params;
+
+    let requestResult: GraphRequestResult;
+    try {
+      requestResult = await this.requestWithRetry({
+        url,
+        method: 'GET',
+        accessToken,
+        agent,
+        dispatcher,
+        type,
+        baseLog,
+        clientRequestId,
+      });
+    } catch (err: any) {
+      logger.error({
+        event,
+        status: 'failed',
+        ...baseLog,
+        attempt: err?.attempt || 1,
+        duration_ms: Date.now() - startedAt,
+        error_code: this.getErrorCode(err),
+        error_message: err?.message || 'Graph request failed',
+      });
+      throw err;
+    }
+
+    const { response, attempt, retry_after } = requestResult;
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.warn({
+        event,
+        status: 'failed',
+        ...baseLog,
+        status_code: response.status,
+        retry_after: retry_after ?? null,
+        attempt,
+        duration_ms: Date.now() - startedAt,
+        error_message: errorText.slice(0, 300),
+      });
+      throw new Error(`Graph API request failed: ${response.status} - ${errorText}`);
+    }
+
+    return requestResult;
+  }
+
   private async executeGraphRequest(
     url: string,
     method: GraphRequestMethod,
@@ -484,6 +595,19 @@ export class GraphApiService {
       return Math.min(Math.max(0, retryAfterMs as number), MAX_SERVER_RETRY_AFTER_MS);
     }
     return this.computeBackoffMs(attempt);
+  }
+
+  private resolveGraphFolder(mailbox: string): string {
+    return mailbox === 'Junk' ? 'junkemail' : 'inbox';
+  }
+
+  private normalizeTop(top: number): number {
+    const parsedTop = Number(top);
+    if (!Number.isFinite(parsedTop) || parsedTop <= 0) {
+      return 50;
+    }
+
+    return Math.floor(parsedTop);
   }
 
   private sleep(ms: number): Promise<void> {

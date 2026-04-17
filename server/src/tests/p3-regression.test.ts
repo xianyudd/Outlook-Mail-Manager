@@ -7,6 +7,10 @@ import { BulkMailJobService } from '../services/BulkMailJobService';
 import { AuditActions, AuditService, auditService } from '../services/AuditService';
 import { MailController } from '../controllers/MailController';
 import { ProxyController } from '../controllers/ProxyController';
+import { MailService } from '../services/MailService';
+import { AccountModel } from '../models/Account';
+import { MailCacheModel } from '../models/MailCache';
+import { OAuthService } from '../services/OAuthService';
 import { config } from '../config';
 
 type AnyRecord = Record<string, any>;
@@ -394,4 +398,170 @@ test('graph request retry should cap retry-after delay', async () => {
   assert.equal(calls, 2);
   assert.equal(slept.length, 1);
   assert.equal(slept[0], 15000);
+});
+
+test('graph fetchMails should follow @odata.nextLink and cap by requested top', async () => {
+  const service = new GraphApiService() as any;
+  const requestedUrls: string[] = [];
+
+  service.requestWithRetry = async ({ url }: AnyRecord) => {
+    requestedUrls.push(String(url));
+
+    if (requestedUrls.length === 1) {
+      return {
+        attempt: 1,
+        response: {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            value: [
+              { id: 'm1', subject: 's1', from: { emailAddress: { address: 'a1@x.com', name: 'A1' } } },
+              { id: 'm2', subject: 's2', from: { emailAddress: { address: 'a2@x.com', name: 'A2' } } },
+            ],
+            '@odata.nextLink': 'https://graph.microsoft.com/v1.0/me/messages?page=2',
+          }),
+        },
+      };
+    }
+
+    return {
+      attempt: 1,
+      response: {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          value: [
+            { id: 'm3', subject: 's3', from: { emailAddress: { address: 'a3@x.com', name: 'A3' } } },
+            { id: 'm4', subject: 's4', from: { emailAddress: { address: 'a4@x.com', name: 'A4' } } },
+          ],
+        }),
+      },
+    };
+  };
+
+  const mails = await service.fetchMails('token', 'INBOX', 3, undefined, { request_id: 'req-page-1' });
+
+  assert.equal(mails.length, 3);
+  assert.equal(mails[0].mail_id, 'm1');
+  assert.equal(mails[2].mail_id, 'm3');
+  assert.equal(requestedUrls.length, 2);
+  assert.match(requestedUrls[0], /\$top=3/);
+});
+
+test('graph deleteAllMails should paginate with top=1000 and delete all pages', async () => {
+  const service = new GraphApiService() as any;
+  const listedUrls: string[] = [];
+  const deletedMailIds: string[] = [];
+
+  service.requestWithRetry = async ({ method, url }: AnyRecord) => {
+    assert.equal(method, 'GET');
+    listedUrls.push(String(url));
+
+    if (listedUrls.length === 1) {
+      return {
+        attempt: 1,
+        response: {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            value: [{ id: 'a1' }, { id: 'a2' }],
+            '@odata.nextLink': 'https://graph.microsoft.com/v1.0/me/messages?page=2',
+          }),
+        },
+      };
+    }
+
+    return {
+      attempt: 1,
+      response: {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          value: [{ id: 'a3' }],
+        }),
+      },
+    };
+  };
+
+  service.deleteMail = async (_accessToken: string, mailId: string) => {
+    deletedMailIds.push(mailId);
+  };
+
+  await service.deleteAllMails('token', 'INBOX', undefined, { request_id: 'req-delete-all-1' });
+
+  assert.equal(listedUrls.length, 2);
+  assert.match(listedUrls[0], /\$top=1000/);
+  assert.match(listedUrls[0], /\$select=id/);
+  assert.deepEqual(deletedMailIds, ['a1', 'a2', 'a3']);
+});
+
+test('mail service cached fallback should return protocol=cache', async () => {
+  const originalGetById = AccountModel.prototype.getById;
+  const originalMarkError = AccountModel.prototype.markError;
+  const originalRefreshGraphToken = OAuthService.prototype.refreshGraphToken;
+  const originalRefreshImapToken = OAuthService.prototype.refreshImapToken;
+  const originalGetByAccount = MailCacheModel.prototype.getByAccount;
+
+  AccountModel.prototype.getById = function mockedGetById() {
+    return {
+      id: 1,
+      email: 'cache-user@example.com',
+      password: '',
+      client_id: 'cid-test',
+      refresh_token: 'rt-test',
+      remark: '',
+      status: 'active',
+      last_synced_at: null,
+      token_refreshed_at: null,
+      created_at: '',
+      updated_at: '',
+      tags: [],
+    } as any;
+  };
+  AccountModel.prototype.markError = function mockedMarkError() {
+    return undefined;
+  };
+  OAuthService.prototype.refreshGraphToken = async function mockedGraphRefresh() {
+    throw new Error('graph failed');
+  };
+  OAuthService.prototype.refreshImapToken = async function mockedImapRefresh() {
+    throw new Error('imap failed');
+  };
+  MailCacheModel.prototype.getByAccount = function mockedGetByAccount() {
+    return {
+      list: [
+        {
+          id: 1,
+          account_id: 1,
+          mailbox: 'INBOX',
+          mail_id: 'cached-mail-1',
+          sender: 'sender@example.com',
+          sender_name: 'Sender',
+          subject: 'cached-subject',
+          text_content: 'cached-body',
+          html_content: '',
+          mail_date: '2026-01-01T00:00:00.000Z',
+          is_read: false,
+          cached_at: '2026-01-01T00:00:00.000Z',
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+    } as any;
+  };
+
+  try {
+    const service = new MailService();
+    const result = await service.fetchMails(1, 'INBOX');
+    assert.equal(result.cached, true);
+    assert.equal(result.protocol, 'cache');
+    assert.equal(result.total, 1);
+  } finally {
+    AccountModel.prototype.getById = originalGetById;
+    AccountModel.prototype.markError = originalMarkError;
+    OAuthService.prototype.refreshGraphToken = originalRefreshGraphToken;
+    OAuthService.prototype.refreshImapToken = originalRefreshImapToken;
+    MailCacheModel.prototype.getByAccount = originalGetByAccount;
+  }
 });

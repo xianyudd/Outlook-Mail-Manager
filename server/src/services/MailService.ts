@@ -185,7 +185,7 @@ export class MailService {
           mail_count: cached.total,
           duration_ms: Date.now() - startedAt,
         });
-        return { mails: cached.list, total: cached.total, protocol: 'graph', cached: true };
+        return { mails: cached.list, total: cached.total, protocol: 'cache', cached: true };
       }
 
       logger.error({

@@ -120,7 +120,7 @@ export interface ProxyTestResult {
 export interface FetchMailsResult {
   mails: MailMessage[];
   total: number;
-  protocol: 'graph' | 'imap';
+  protocol: 'graph' | 'imap' | 'cache';
   cached: boolean;
 }
 
