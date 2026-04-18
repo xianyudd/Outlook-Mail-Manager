@@ -2,6 +2,32 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 
 const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : '';
+const BASE64_CHUNK_SIZE = 0x8000;
+
+const readAsArrayBuffer = (file: File) => new Promise<ArrayBuffer>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => {
+    if (reader.result instanceof ArrayBuffer) {
+      resolve(reader.result);
+    } else {
+      reject(new Error('读取备份文件失败'));
+    }
+  };
+  reader.onerror = () => reject(reader.error ?? new Error('读取备份文件失败'));
+  reader.readAsArrayBuffer(file);
+});
+
+const arrayBufferToBase64 = (arrayBuffer: ArrayBuffer) => {
+  const bytes = new Uint8Array(arrayBuffer);
+  let binary = '';
+
+  for (let i = 0; i < bytes.length; i += BASE64_CHUNK_SIZE) {
+    const chunk = bytes.subarray(i, i + BASE64_CHUNK_SIZE);
+    binary += String.fromCharCode(...chunk);
+  }
+
+  return btoa(binary);
+};
 
 export default function BackupRestore() {
   const [restoring, setRestoring] = useState(false);
@@ -40,28 +66,24 @@ export default function BackupRestore() {
 
     setRestoring(true);
     try {
-      const reader = new FileReader();
-      reader.onload = async (ev) => {
-        const arrayBuffer = ev.target?.result as ArrayBuffer;
-        const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+      const arrayBuffer = await readAsArrayBuffer(file);
+      const base64 = arrayBufferToBase64(arrayBuffer);
 
-        const token = localStorage.getItem('auth_token');
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (token) headers['Authorization'] = `Bearer ${token}`;
+      const token = localStorage.getItem('auth_token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
 
-        const res = await fetch('/api/backup/restore', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ fileContent: base64 })
-        });
+      const res = await fetch('/api/backup/restore', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ fileContent: base64 })
+      });
 
-        const json = await res.json();
-        if (json.code !== 200) throw new Error(json.message || '恢复失败');
+      const json = await res.json();
+      if (json.code !== 200) throw new Error(json.message || '恢复失败');
 
-        toast.success('数据库恢复成功！页面将刷新。');
-        window.location.reload();
-      };
-      reader.readAsArrayBuffer(file);
+      toast.success('数据库恢复成功！页面将刷新。');
+      window.location.reload();
     } catch (err: unknown) {
       toast.error('恢复失败: ' + getErrorMessage(err));
     } finally {

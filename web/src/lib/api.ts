@@ -24,13 +24,22 @@ function qs(params?: Record<string, any>): string {
   return Object.entries(params).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
 }
 
+function hasHeader(headers: Record<string, string>, name: string): boolean {
+  const target = name.toLowerCase();
+  return Object.keys(headers).some((key) => key.toLowerCase() === target);
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const token = localStorage.getItem('auth_token');
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     ...(options?.headers as Record<string, string>),
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const hasBody = options?.body !== undefined && options?.body !== null;
+  if (hasBody && !(options?.body instanceof FormData) && !hasHeader(headers, 'Content-Type')) {
+    headers['Content-Type'] = 'application/json';
+  }
 
   const res = await fetch(`${API_BASE}${url}`, { ...options, headers });
 
