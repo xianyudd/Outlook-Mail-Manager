@@ -1,4 +1,7 @@
 import { useState } from 'react';
+import { toast } from 'sonner';
+
+const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : '';
 
 export default function BackupRestore() {
   const [restoring, setRestoring] = useState(false);
@@ -21,8 +24,8 @@ export default function BackupRestore() {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-    } catch (err: any) {
-      alert('备份下载失败: ' + err.message);
+    } catch (err: unknown) {
+      toast.error('备份下载失败: ' + getErrorMessage(err));
     }
   };
 
@@ -55,12 +58,12 @@ export default function BackupRestore() {
         const json = await res.json();
         if (json.code !== 200) throw new Error(json.message || '恢复失败');
 
-        alert('✅ 数据库恢复成功！页面将刷新。');
+        toast.success('数据库恢复成功！页面将刷新。');
         window.location.reload();
       };
       reader.readAsArrayBuffer(file);
-    } catch (err: any) {
-      alert('恢复失败: ' + err.message);
+    } catch (err: unknown) {
+      toast.error('恢复失败: ' + getErrorMessage(err));
     } finally {
       setRestoring(false);
       e.target.value = '';

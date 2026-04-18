@@ -7,6 +7,8 @@ import type { BulkMailJob, BulkMailJobItem, BulkMailJobLog, BulkMailJobStatus, P
 
 const PAGE_SIZE = 20;
 
+const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : '';
+
 const statusClassMap: Record<BulkMailJobStatus, string> = {
   queued: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200',
   running: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
@@ -125,8 +127,8 @@ export default function BulkJobs() {
       setJob(jobDetail);
       setItems(jobItems);
       setLogs(jobLogs);
-    } catch (err: any) {
-      setError(err?.message || '加载任务详情失败');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err) || '加载任务详情失败');
       setJob(null);
     } finally {
       setLoading(false);
@@ -167,8 +169,8 @@ export default function BulkJobs() {
       await bulkJobApi.cancel(currentJobId);
       toast.success('取消请求已提交');
       await fetchDetail();
-    } catch (err: any) {
-      toast.error(err?.message || '取消任务失败');
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err) || '取消任务失败');
     } finally {
       setCanceling(false);
     }

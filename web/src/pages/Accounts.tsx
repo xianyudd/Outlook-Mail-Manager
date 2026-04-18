@@ -11,6 +11,8 @@ import PasteImportDialog from '../components/accounts/PasteImportDialog';
 import { MailViewerDialog } from '../components/accounts/MailViewerDialog';
 import BackupRestore from '../components/accounts/BackupRestore';
 
+const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : '';
+
 export default function Accounts() {
   const {
     accounts, loading, selectedIds, searchQuery, pagination,
@@ -50,8 +52,8 @@ export default function Accounts() {
         await createAccount(data);
         toast.success('邮箱已添加');
       }
-    } catch (e: any) {
-      toast.error(e.message || '操作失败');
+    } catch (e: unknown) {
+      toast.error(getErrorMessage(e) || '操作失败');
     }
   };
 
@@ -60,8 +62,8 @@ export default function Accounts() {
     try {
       await deleteAccount(id);
       toast.success('已删除');
-    } catch (e: any) {
-      toast.error(e.message || '删除失败');
+    } catch (e: unknown) {
+      toast.error(getErrorMessage(e) || '删除失败');
     }
   };
 
@@ -70,8 +72,8 @@ export default function Accounts() {
     try {
       await batchDelete(selectedIds);
       toast.success(`已删除 ${selectedIds.length} 个邮箱`);
-    } catch (e: any) {
-      toast.error(e.message || '批量删除失败');
+    } catch (e: unknown) {
+      toast.error(getErrorMessage(e) || '批量删除失败');
     }
   };
 
@@ -82,8 +84,8 @@ export default function Accounts() {
     try {
       await batchDelete(allIds);
       toast.success('已全部删除');
-    } catch (e: any) {
-      toast.error(e.message || '删除失败');
+    } catch (e: unknown) {
+      toast.error(getErrorMessage(e) || '删除失败');
     }
   };
 
@@ -99,8 +101,8 @@ export default function Accounts() {
       a.click();
       URL.revokeObjectURL(url);
       toast.success('导出成功');
-    } catch (e: any) {
-      toast.error(e.message || '导出失败');
+    } catch (e: unknown) {
+      toast.error(getErrorMessage(e) || '导出失败');
     }
   };
 
@@ -120,16 +122,16 @@ export default function Accounts() {
     try {
       await setAccountTags(accountId, newTagIds);
       await fetchAccounts();
-    } catch (e: any) {
-      toast.error(e.message || '标签操作失败');
+    } catch (e: unknown) {
+      toast.error(getErrorMessage(e) || '标签操作失败');
     }
   };
 
   const handleCreateTag = async (name: string) => {
     try {
       await createTag(name);
-    } catch (e: any) {
-      toast.error(e.message || '创建标签失败');
+    } catch (e: unknown) {
+      toast.error(getErrorMessage(e) || '创建标签失败');
     }
   };
 
@@ -137,8 +139,8 @@ export default function Accounts() {
     try {
       await deleteTag(tagId);
       await fetchAccounts();
-    } catch (e: any) {
-      toast.error(e.message || '删除标签失败');
+    } catch (e: unknown) {
+      toast.error(getErrorMessage(e) || '删除标签失败');
     }
   };
 

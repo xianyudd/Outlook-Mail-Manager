@@ -5,6 +5,8 @@ import type { Proxy } from '../types';
 import ProxyTable from '../components/proxy/ProxyTable';
 import ProxyForm from '../components/proxy/ProxyForm';
 
+const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : '';
+
 export default function ProxySettings() {
   const { proxies, loading, fetchProxies, createProxy, updateProxy, deleteProxy, testProxy, setDefault } = useProxyStore();
   const [formOpen, setFormOpen] = useState(false);
@@ -33,8 +35,8 @@ export default function ProxySettings() {
         await createProxy(data);
         toast.success('代理已添加');
       }
-    } catch (e: any) {
-      toast.error(e.message || '操作失败');
+    } catch (e: unknown) {
+      toast.error(getErrorMessage(e) || '操作失败');
       throw e;
     }
   };
@@ -44,8 +46,8 @@ export default function ProxySettings() {
     try {
       await deleteProxy(id);
       toast.success('代理已删除');
-    } catch (e: any) {
-      toast.error(e.message || '删除失败');
+    } catch (e: unknown) {
+      toast.error(getErrorMessage(e) || '删除失败');
     }
   };
 
@@ -63,8 +65,8 @@ export default function ProxySettings() {
     try {
       await setDefault(id);
       toast.success('已设为默认代理');
-    } catch (e: any) {
-      toast.error(e.message || '设置失败');
+    } catch (e: unknown) {
+      toast.error(getErrorMessage(e) || '设置失败');
     }
   };
 

@@ -16,7 +16,9 @@ export default function App() {
 
   useEffect(() => {
     checkAuth();
-    window.addEventListener('auth-required', () => setShowLogin(true));
+    const handleAuthRequired = () => setShowLogin(true);
+    window.addEventListener('auth-required', handleAuthRequired);
+    return () => window.removeEventListener('auth-required', handleAuthRequired);
   }, []);
 
   const checkAuth = async () => {

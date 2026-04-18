@@ -40,7 +40,20 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     throw new Error('Unauthorized');
   }
 
-  const json: ApiResponse<T> = await res.json();
+  if (res.status === 204 || res.status === 205) {
+    return undefined as T;
+  }
+
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    const text = await res.text();
+    throw new Error(text || `Request failed: HTTP ${res.status}`);
+  }
+
+  const json = await res.json() as ApiResponse<T>;
+  if (typeof json?.code !== 'number') {
+    throw new Error('Invalid response format');
+  }
   if (json.code !== 200) throw new Error(json.message || `Request failed: ${json.code}`);
   return json.data;
 }

@@ -7,6 +7,8 @@ import { StatCard } from '../components/dashboard/StatCard';
 import { QuickActions } from '../components/dashboard/QuickActions';
 import { RecentMails } from '../components/dashboard/RecentMails';
 
+const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : '';
+
 export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -20,8 +22,8 @@ export default function Dashboard() {
       setError(null);
       const data = await dashboardApi.stats();
       setStats(data);
-    } catch (err: any) {
-      setError(err.message || '加载仪表盘数据失败');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err) || '加载仪表盘数据失败');
     } finally {
       setLoading(false);
       setRefreshing(false);

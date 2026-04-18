@@ -1,6 +1,9 @@
 import { useState } from 'react';
-import type { ImportRequest, ImportPreviewResult } from '../../types';
+import { toast } from 'sonner';
+import type { ImportPreviewResult } from '../../types';
 import { accountApi } from '../../lib/api';
+
+const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : '';
 
 interface Props {
   open: boolean;
@@ -47,8 +50,8 @@ export default function ImportDialog({ open, onClose, onImport }: Props) {
       const result = await accountApi.importPreview({ content, separator, format });
       setPreviewData(result);
       setStep('preview');
-    } catch (err: any) {
-      alert('预览失败: ' + err.message);
+    } catch (err: unknown) {
+      toast.error('预览失败: ' + getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -59,11 +62,11 @@ export default function ImportDialog({ open, onClose, onImport }: Props) {
     setLoading(true);
     try {
       const res = await accountApi.importConfirm({ content, separator, format, mode });
-      alert(`导入完成！新增: ${res.imported}, 跳过: ${res.skipped}`);
+      toast.success(`导入完成！新增: ${res.imported}, 跳过: ${res.skipped}`);
       onImport(); // This should trigger a refresh in the parent component
       handleClose();
-    } catch (err: any) {
-      alert('导入失败: ' + err.message);
+    } catch (err: unknown) {
+      toast.error('导入失败: ' + getErrorMessage(err));
     } finally {
       setLoading(false);
     }

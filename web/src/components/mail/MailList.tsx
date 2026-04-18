@@ -6,6 +6,8 @@ import { MailSkeleton } from './MailSkeleton';
 import type { MailMessage } from '../../types';
 import { toast } from 'sonner';
 
+const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : '';
+
 interface MailListProps {
   accountId: number | null;
 }
@@ -28,8 +30,8 @@ export function MailList({ accountId }: MailListProps) {
     try {
       await fetchMails(accountId, currentMailbox);
       toast.success('邮件收取完成');
-    } catch (e: any) {
-      toast.error(e.message || '收取邮件失败');
+    } catch (e: unknown) {
+      toast.error(getErrorMessage(e) || '收取邮件失败');
     }
   };
 
@@ -39,8 +41,8 @@ export function MailList({ accountId }: MailListProps) {
     try {
       await clearMailbox(accountId, currentMailbox);
       toast.success('清空完成');
-    } catch (e: any) {
-      toast.error(e.message || '清空失败');
+    } catch (e: unknown) {
+      toast.error(getErrorMessage(e) || '清空失败');
     }
   };
 
