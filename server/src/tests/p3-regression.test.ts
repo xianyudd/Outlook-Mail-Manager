@@ -12,6 +12,8 @@ import { AccountModel } from '../models/Account';
 import { MailCacheModel } from '../models/MailCache';
 import { OAuthService } from '../services/OAuthService';
 import { config } from '../config';
+import db from '../database';
+import { ensureBulkMailJobItemsCancelledStatusSupport } from '../database/migrations';
 
 type AnyRecord = Record<string, any>;
 
@@ -151,6 +153,36 @@ test('graph request retry should retry on retryable status and keep client-reque
   assert.equal(calls, 3);
   assert.equal(result.attempt, 3);
   assert.equal(result.response.status, 200);
+});
+
+test('bulk job item migration should rebuild legacy schema without cancelled status', () => {
+  const originalPrepare = db.prepare.bind(db);
+  const originalExec = db.exec.bind(db);
+  let executedSql = '';
+
+  (db as any).prepare = (sql: string) => {
+    if (sql.includes(`FROM sqlite_master`) && sql.includes(`bulk_mail_job_items`)) {
+      return {
+        get: () => ({
+          sql: `CREATE TABLE bulk_mail_job_items (status TEXT NOT NULL CHECK(status IN ('queued', 'running', 'success', 'failed')))`
+        }),
+      };
+    }
+    return originalPrepare(sql);
+  };
+  (db as any).exec = (sql: string) => {
+    executedSql = sql;
+  };
+
+  try {
+    ensureBulkMailJobItemsCancelledStatusSupport();
+    assert.match(executedSql, /ALTER TABLE bulk_mail_job_items RENAME TO bulk_mail_job_items_legacy/);
+    assert.match(executedSql, /'cancelled'/);
+    assert.match(executedSql, /error_code = 'BULK_JOB_CANCELLED' THEN 'cancelled'/);
+  } finally {
+    (db as any).prepare = originalPrepare;
+    (db as any).exec = originalExec;
+  }
 });
 
 test('bulk job logs/cancel API handlers should return expected payloads', async () => {

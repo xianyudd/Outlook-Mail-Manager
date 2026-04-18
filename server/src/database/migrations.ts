@@ -1,5 +1,91 @@
 import db from './index';
 
+export function ensureBulkMailJobItemsCancelledStatusSupport() {
+  const table = db.prepare(`
+    SELECT sql
+    FROM sqlite_master
+    WHERE type = 'table' AND name = 'bulk_mail_job_items'
+  `).get() as { sql?: string } | undefined;
+
+  const schemaSql = table?.sql || '';
+  if (!schemaSql || schemaSql.includes(`'cancelled'`)) {
+    return;
+  }
+
+  db.exec(`
+    PRAGMA foreign_keys = OFF;
+
+    ALTER TABLE bulk_mail_job_items RENAME TO bulk_mail_job_items_legacy;
+
+    CREATE TABLE bulk_mail_job_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      job_id TEXT NOT NULL,
+      batch_no INTEGER NOT NULL,
+      account_id INTEGER NOT NULL,
+      account_email TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('queued', 'running', 'success', 'failed', 'cancelled')),
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      mailboxes_json TEXT NOT NULL,
+      top INTEGER NOT NULL DEFAULT 50,
+      inbox_count INTEGER NOT NULL DEFAULT 0,
+      junk_count INTEGER NOT NULL DEFAULT 0,
+      fetched_total INTEGER NOT NULL DEFAULT 0,
+      request_id TEXT,
+      error_code TEXT,
+      error_message TEXT,
+      started_at DATETIME,
+      finished_at DATETIME,
+      duration_ms INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (job_id) REFERENCES bulk_mail_jobs(job_id) ON DELETE CASCADE,
+      FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+    );
+
+    INSERT INTO bulk_mail_job_items (
+      id, job_id, batch_no, account_id, account_email, status, retry_count,
+      mailboxes_json, top, inbox_count, junk_count, fetched_total,
+      request_id, error_code, error_message, started_at, finished_at,
+      duration_ms, created_at, updated_at
+    )
+    SELECT
+      id,
+      job_id,
+      batch_no,
+      account_id,
+      account_email,
+      CASE
+        WHEN status = 'failed' AND error_code = 'BULK_JOB_CANCELLED' THEN 'cancelled'
+        ELSE status
+      END,
+      retry_count,
+      mailboxes_json,
+      top,
+      inbox_count,
+      junk_count,
+      fetched_total,
+      request_id,
+      error_code,
+      error_message,
+      started_at,
+      finished_at,
+      duration_ms,
+      created_at,
+      updated_at
+    FROM bulk_mail_job_items_legacy;
+
+    DROP TABLE bulk_mail_job_items_legacy;
+
+    CREATE UNIQUE INDEX idx_bulk_mail_job_items_unique
+      ON bulk_mail_job_items(job_id, account_email);
+    CREATE INDEX idx_bulk_mail_job_items_job ON bulk_mail_job_items(job_id);
+    CREATE INDEX idx_bulk_mail_job_items_job_batch ON bulk_mail_job_items(job_id, batch_no);
+    CREATE INDEX idx_bulk_mail_job_items_job_status ON bulk_mail_job_items(job_id, status);
+
+    PRAGMA foreign_keys = ON;
+  `);
+}
+
 export function runMigrations() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS accounts (
@@ -205,4 +291,6 @@ export function runMigrations() {
       FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
     )
   `);
+
+  ensureBulkMailJobItemsCancelledStatusSupport();
 }
