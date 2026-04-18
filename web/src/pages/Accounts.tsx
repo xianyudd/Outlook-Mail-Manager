@@ -15,7 +15,7 @@ export default function Accounts() {
   const {
     accounts, loading, selectedIds, searchQuery, pagination,
     fetchAccounts, createAccount, updateAccount, deleteAccount, batchDelete,
-    exportAccounts, setSelectedIds, setSearchQuery, setPage, setPageSize,
+    importAccounts, exportAccounts, setSelectedIds, setSearchQuery, setPage, setPageSize,
   } = useAccountStore();
 
   const { tags, fetchTags, createTag, deleteTag, setAccountTags } = useTagStore();
@@ -244,7 +244,11 @@ export default function Accounts() {
         onDeleteTag={handleDeleteTag}
       />
       <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} onImport={() => fetchAccounts()} />
-      <PasteImportDialog open={pasteOpen} onClose={() => setPasteOpen(false)} onImport={() => fetchAccounts()} />
+      <PasteImportDialog
+        open={pasteOpen}
+        onClose={() => setPasteOpen(false)}
+        onImport={async (req) => { await importAccounts(req); }}
+      />
       {mailViewAccount && (
         <MailViewerDialog
           open={mailViewOpen}
